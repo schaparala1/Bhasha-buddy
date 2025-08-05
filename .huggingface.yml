@@ -1,0 +1,4 @@
+title: Desi AI App
+sdk: streamlit
+python_version: 3.10
+app_file: main.py
