@@ -6,7 +6,12 @@ import whisper
 from transformers import M2M100ForConditionalGeneration, M2M100Tokenizer
 import torch
 import base64
+import os
+from datetime import datetime
 
+# ==========================
+# CONFIG & STYLES
+# ==========================
 st.set_page_config(page_title="🎭 BhashaBuddy", layout="wide")
 st.markdown(
     """
@@ -16,19 +21,37 @@ st.markdown(
         background-size: cover;
         background-position: center;
     }
-
     .stApp {
         background-color: rgba(255, 255, 255, 0.85);
         padding: 2rem;
         border-radius: 12px;
+    }
+    footer {
+        text-align: center;
+        font-size: 14px;
+        margin-top: 2rem;
+        color: #444;
     }
     </style>
     """,
     unsafe_allow_html=True
 )
 
+# ==========================
+# FOLDER SETUP
+# ==========================
+os.makedirs("outputs", exist_ok=True)
 
-# Load models
+def save_file(file_data, filename):
+    """Save uploaded/generated file into outputs folder"""
+    path = os.path.join("outputs", filename)
+    with open(path, "wb") as f:
+        f.write(file_data)
+    return path
+
+# ==========================
+# LOAD MODELS
+# ==========================
 @st.cache_resource
 def load_whisper_model():
     return whisper.load_model("small")
@@ -42,10 +65,13 @@ def load_translation_model():
 whisper_model = load_whisper_model()
 tokenizer, translation_model = load_translation_model()
 
-# Functions
+# ==========================
+# FUNCTIONS
+# ==========================
 def transcribe_audio(file_path):
     result = whisper_model.transcribe(file_path)
-    return result["text"]
+    detected_lang = result.get("language", "en")
+    return result["text"], detected_lang
 
 def translate(text, source_lang="en", target_lang="hi"):
     tokenizer.src_lang = source_lang
@@ -59,7 +85,9 @@ def convert_audio(file):
     audio.export(temp_path, format="wav")
     return temp_path
 
-# UI language selector
+# ==========================
+# UI LANGUAGES
+# ==========================
 supported_languages = {
     "English": "english",
     "Hindi": "hindi",
@@ -74,17 +102,15 @@ supported_languages = {
     "French": "french",
     "German": "german",
     "Spanish": "spanish",
-    "Chinese (Simplified)": "zh",
+    "Chinese (Simplified)": "chinese",
     "Japanese": "japanese",
-    "Korean": "korea",
-    # Add more if needed
+    "Korean": "korean",
 }
+
 selected_language_label = st.selectbox("🌐 Select UI Language", list(supported_languages.keys()), index=0)
 ui_language = supported_languages[selected_language_label]
 
-
-
-# Translate text helper
+# Labels
 ui_text = {
     "en": {
         "title": "🎭 BhashaBuddy",
@@ -96,77 +122,97 @@ ui_text = {
         "custom_text": "✍️ Enter Custom Text",
         "transcribe_result": "🗣️ Transcribed",
         "translate_result": "🌍 Translated",
-        "download": "💾 Download Result"
-    },
-    "hi": {},
-    "te": {}
+        "download": "💾 Download Result",
+        "submit": "🚀 Submit"
+    }
 }
 
-# Fallback for untranslated
 def get_label(key):
-    return ui_text.get(ui_language, {}).get(key, ui_text["en"][key])
+    return ui_text.get("en", {}).get(key, key)
 
-# App title
+# ==========================
+# APP TITLE
+# ==========================
 st.title(get_label("title"))
 
-# Tabs for features
+# ==========================
+# TABS
+# ==========================
 tab1, tab2, tab3 = st.tabs([get_label("meme"), get_label("recipe"), get_label("landmark")])
 
+# Meme Tab
 with tab1:
-    img_file = st.file_uploader(get_label("image_upload"), type=["jpg", "jpeg", "png"])
-    custom_text = st.text_input(get_label("custom_text"))
-    if img_file:
-        image = Image.open(img_file)
-        st.image(image, caption="Uploaded Image")
-        if custom_text:
-            st.markdown(f"### Meme: {custom_text}")
-        st.download_button(get_label("download"), img_file.read(), file_name="meme.png")
+    with st.form("meme_form"):
+        img_file = st.file_uploader(get_label("image_upload"), type=["jpg", "jpeg", "png"])
+        custom_text = st.text_input(get_label("custom_text"))
+        submitted = st.form_submit_button(get_label("submit"))
+        
+        if submitted and img_file:
+            image = Image.open(img_file)
+            st.image(image, caption="Uploaded Image")
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            save_file(img_file.read(), f"meme_{timestamp}.png")
+            if custom_text:
+                st.markdown(f"### Meme: {custom_text}")
+                save_file(custom_text.encode(), f"meme_text_{timestamp}.txt")
+            st.success("✅ Meme saved to outputs folder")
 
+# Recipe Tab
 with tab2:
-    st.header(get_label("recipe"))
-    img_file = st.file_uploader(get_label("image_upload") + " (Recipe)", type=["jpg", "jpeg", "png"])
-    text_input = st.text_area(get_label("custom_text") + " (Recipe)")
-    audio_file = st.file_uploader(get_label("audio_upload") + " (Recipe)", type=["mp3", "wav"])
+    with st.form("recipe_form"):
+        img_file = st.file_uploader(get_label("image_upload") + " (Recipe)", type=["jpg", "jpeg", "png"])
+        text_input = st.text_area(get_label("custom_text") + " (Recipe)")
+        audio_file = st.file_uploader(get_label("audio_upload") + " (Recipe)", type=["mp3", "wav"])
+        submitted = st.form_submit_button(get_label("submit"))
 
-    # Voice Input
-    if audio_file:
-        st.audio(audio_file)
-        converted = convert_audio(audio_file)
-        transcribed, detected_lang = transcribe_audio(converted)
-        st.success(f"{get_label('transcribe_result')}: {transcribed}")
-        st.info(f"🧭 Detected Language: {detected_lang.upper()}")
-        translated = translate(transcribed, source_lang=detected_lang, target_lang=ui_language)
-        text_input = translated  # Optional: Autofill recipe text input with translated voice
+        if submitted:
+            if audio_file:
+                st.audio(audio_file)
+                converted = convert_audio(audio_file)
+                transcribed, detected_lang = transcribe_audio(converted)
+                st.success(f"{get_label('transcribe_result')}: {transcribed}")
+                st.info(f"🧭 Detected Language: {detected_lang.upper()}")
+                translated = translate(transcribed, source_lang=detected_lang, target_lang=ui_language)
+                text_input = translated
+                save_file(transcribed.encode(), f"recipe_transcription_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt")
 
-    # Text or image input
-    if img_file:
-        st.image(Image.open(img_file), caption="Recipe Image")
-    
-    if text_input:
-        st.success("🍽️ Recipes coming soon (placeholder)")
-        st.download_button(get_label("download"), text_input.encode(), file_name="recipe.txt")
+            if img_file:
+                st.image(Image.open(img_file), caption="Recipe Image")
+                save_file(img_file.read(), f"recipe_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png")
 
+            if text_input:
+                st.success("🍽️ Recipes coming soon (placeholder)")
+                save_file(text_input.encode(), f"recipe_text_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt")
+            st.success("✅ Recipe data saved to outputs folder")
 
+# Landmark Tab
 with tab3:
-    img_file = st.file_uploader(get_label("image_upload") + " (Landmark)", type=["jpg", "jpeg", "png"])
-    text_input = st.text_area(get_label("custom_text") + " (Landmark)")
-    audio_file = st.file_uploader(get_label("audio_upload"), type=["mp3", "wav"])
+    with st.form("landmark_form"):
+        img_file = st.file_uploader(get_label("image_upload") + " (Landmark)", type=["jpg", "jpeg", "png"])
+        text_input = st.text_area(get_label("custom_text") + " (Landmark)")
+        audio_file = st.file_uploader(get_label("audio_upload"), type=["mp3", "wav"])
+        submitted = st.form_submit_button(get_label("submit"))
 
-    if audio_file:
-        st.audio(audio_file)
-        converted = convert_audio(audio_file)
-        transcribed, detected_lang = transcribe_audio(converted)
-        st.success(f"{get_label('transcribe_result')}: {transcribed}")
-        st.info(f"🧭 Detected Language: {detected_lang.upper()}")
-        translated = translate(transcribed, source_lang=detected_lang, target_lang=ui_language)
+        if submitted:
+            if audio_file:
+                st.audio(audio_file)
+                converted = convert_audio(audio_file)
+                transcribed, detected_lang = transcribe_audio(converted)
+                st.success(f"{get_label('transcribe_result')}: {transcribed}")
+                st.info(f"🧭 Detected Language: {detected_lang.upper()}")
+                translated = translate(transcribed, source_lang=detected_lang, target_lang=ui_language)
+                save_file(transcribed.encode(), f"landmark_transcription_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt")
 
-    if img_file:
-        st.image(Image.open(img_file), caption="Landmark Image")
-        st.success("📍 Landmark identification coming soon")
+            if img_file:
+                st.image(Image.open(img_file), caption="Landmark Image")
+                save_file(img_file.read(), f"landmark_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png")
 
-    if text_input:
-        st.markdown(f"**📝 Text Input:** {text_input}")
-        st.download_button(get_label("download"), text_input.encode(), file_name="landmark.txt")
-# Footer
-st.markdown("---")
-st.markdown("<center>👩‍💻 Built by <b>Susrutha Chaparala</b> | Summer of AI 2025</center>", unsafe_allow_html=True)
+            if text_input:
+                st.markdown(f"**📝 Text Input:** {text_input}")
+                save_file(text_input.encode(), f"landmark_text_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt")
+            st.success("✅ Landmark data saved to outputs folder")
+
+# ==========================
+# FOOTER
+# ==========================
+st.markdown("<footer>💡 Built by Susrutha</footer>", unsafe_allow_html=True)
