@@ -1,0 +1,5 @@
+__pycache__/
+*.pyc
+.env
+converted_audio.wav
+.DS_Store
